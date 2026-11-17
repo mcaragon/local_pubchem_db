@@ -1,27 +1,139 @@
-# Build an SQLite Database from Pubchem
+# PubChem Local
+
+A self-hosted, **offline copy of the [PubChem](https://pubchem.ncbi.nlm.nih.gov/) chemistry database** with a web UI
+and a REST API, packaged as a Docker container (with an Unraid template).
+
+* Search by **name, CAS number, molecular formula, SMILES, InChI/InChIKey or CID** (with autocomplete).
+* Compound pages with 2D structure, identifiers, computed properties, **experimental physical properties**
+  (boiling point, melting point, density, flash point, refractive index, solubility, ...) and **GHS safety data**
+  (pictograms, signal word, H/P statements) plus PubChem's full Laboratory Chemical Safety Summary.
+* A documented **REST API** (`/docs`) designed for other apps, e.g. a lab notebook that auto-fills molar masses,
+  densities and boiling points: `POST /api/lab/batch` resolves a list of reagents in one call.
+* Builds from PubChem's public bulk downloads; the database files are plain SQLite.
+
+Based on [bachi55/local_pubchem_db](https://github.com/bachi55/local_pubchem_db) (the `pubchem2sqlite` library,
+still included and documented [below](#the-pubchem2sqlite-library)).
+
+## Datasets
+
+The data is split into three independent SQLite databases that you can build (and rebuild) separately from the
+web UI ("Databases" page):
+
+| Dataset | Contents | Download | Disk | Build time* |
+| --- | --- | --- | --- | --- |
+| `lcss` — Lab safety & experimental data | ~257,000 compounds that matter in a lab: experimental properties, GHS hazards, handling, storage, first aid, disposal, with sources (`CID-LCSS.xml.gz`) | 0.5 GB | 2 GB | ~5 min |
+| `names` — Names & synonyms | Preferred names and ~100M synonyms (trade names, CAS numbers, ...) for all compounds; enables name search across all of PubChem | 3 GB | ~16 GB | ~30 min |
+| `compounds` — All compounds | ~120 million compounds: formula, masses, SMILES, InChI/InChIKey, IUPAC name, XLogP3, TPSA, H-bond donors/acceptors, ... (`CURRENT-Full/SDF`) | 110 GB | ~60–80 GB | several hours |
+
+\* on a 4-core machine with a fast connection; the compound build is resumable and parses files in parallel.
+
+**Start with `lcss`**: it builds in minutes and on its own already gives a useful lab-chemical database (name/CAS
+search, structures, properties, safety). Add `names` and `compounds` for the complete PubChem compound collection.
+
+Experimental values are compiled by PubChem from many sources and are given as free text (e.g.
+*"313 to 316 °F at 758 mmHg (NTP, 1992)"*). PubChem Local parses them to numbers in °C / g/cm³ and reports the
+**median of all values at standard conditions** (boiling points at reduced pressure, vapour densities, values for
+molten material or solutions are excluded). Every individual source value is always shown/returned as well, so verify
+critical values before relying on them.
+
+## Installation on Unraid
+
+1. In the Unraid web UI go to **Docker → Add Container** and fill in the template, or download
+   [`unraid/pubchem-local.xml`](unraid/pubchem-local.xml) to `/boot/config/plugins/dockerMan/templates-user/`
+   on your flash drive and pick it under *Template → User templates*:
+   * Repository: `ghcr.io/mcaragon/local_pubchem_db:latest`
+   * Port: `8080` → `8080`
+   * Path: `/mnt/user/appdata/pubchem-local` → `/data`
+2. Start the container and open the WebUI. Go to **Databases**, select the datasets and click
+   **Download & build selected**. Progress and logs are shown on that page.
+
+Recommendations:
+
+* Put `/data` on an **SSD / cache pool** (a share with "Use cache pool: Only/Prefer"). SQLite on the parity-protected
+  array is slow, especially while building indices.
+* The full `compounds` build needs ~110 GB of downloads. Downloaded SDF files are deleted after import unless
+  `KEEP_SDF_FILES=true`, so peak usage is roughly the database size plus a few GB.
+
+## Installation with Docker / Docker Compose
+
+```bash
+docker run -d --name pubchem-local -p 8080:8080 -v /path/to/pubchem-data:/data \
+  -e AUTO_BUILD=lcss,names ghcr.io/mcaragon/local_pubchem_db:latest
+```
+
+or use the included [`docker-compose.yml`](docker-compose.yml). To build the image yourself: `docker build -t pubchem-local .`
+
+### Configuration (environment variables)
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `AUTO_BUILD` | *(empty)* | Datasets to build automatically on start if they don't exist yet: `lcss`, `names`, `compounds` or `all` |
+| `WORKERS` | CPU cores − 1 (max 8) | Parallel processes for parsing SDF files |
+| `DOWNLOAD_CONCURRENCY` | `3` | Parallel downloads from PubChem |
+| `KEEP_SDF_FILES` | `false` | Keep the ~110 GB of SDF files after import |
+| `ADMIN_TOKEN` | *(empty)* | If set, starting/cancelling builds requires this token (`X-Admin-Token` header). Searching is always open |
+| `CORS_ORIGINS` | `*` | Origins allowed to call the API from browser apps (comma separated) |
+| `PUID` / `PGID` | `99` / `100` | User/group the app runs as (Unraid's `nobody:users`) |
+| `PORT` | `8080` | Port inside the container |
+| `SDF_LIMIT` | `0` | Only import the first N SDF files (for testing) |
+
+Builds can also be started from the command line:
+
+```bash
+docker exec pubchem-local pubchem-local build --datasets lcss,names,compounds
+docker exec pubchem-local pubchem-local status
+```
+
+## Using the API from other apps
+
+Interactive documentation is at `http://<server>:8080/docs`. See **[docs/API.md](docs/API.md)** for an overview and
+examples. A quick taste:
+
+```bash
+curl "http://unraid:8080/api/lookup?q=acetone"
+curl -X POST http://unraid:8080/api/lab/batch -H 'Content-Type: application/json' \
+     -d '{"identifiers": ["benzaldehyde", "75-09-2", "NaBH4", "CCO"]}'
+```
+
+## Updating the data
+
+PubChem updates its files weekly. Rebuilding a dataset from the **Databases** page downloads the current files
+(unchanged files are skipped via their md5 checksum) and builds a new database next to the old one, which stays online
+until the new one is complete.
+
+## Development
+
+```bash
+pip install -e ".[server]" httpx
+python -m unittest pubchem2sqlite/tests/unittests_utils.py
+python -m unittest discover -s pubchem_local/tests -t .
+PUBCHEM_DATA_DIR=./pubchem-data pubchem-local build --datasets lcss
+PUBCHEM_DATA_DIR=./pubchem-data pubchem-local serve --port 8080
+```
+
+Code layout: `pubchem2sqlite/` (SDF → SQLite library), `pubchem_local/` (downloads, importers, API, web UI in
+`static/`), `docker/`, `unraid/`.
+
+---
+
+## The pubchem2sqlite library
 
 This library can be used to build an [SQLite](https://www.sqlite.org/index.html) database (DB) containing all compounds in [PubChem](https://pubchem.ncbi.nlm.nih.gov/). A simple [json-file](default_db_layout.json) is used to specify the layout of the SQLite DB allowing to controll which PubChem [SD-tags](https://ftp.ncbi.nlm.nih.gov/pubchem/specifications/pubchem_sdtags.pdf) should be included.
 
-## Features: 
-
-- Construct a local copy of the PubChem *compound* database from publicly available *sdf*-files.
-- Local database is SQLite database
-- Database layout and the PubChem information to extract can be specified. 
-
-## Installation 
+### Installation 
  
 The library libraries only requirement is Python (tested on 3.5 - 3.9), no external libraries need to be installed. Simply run:
 ```bash
-git clone https://github.com/bachi55/local_pubchem_db
+git clone https://github.com/mcaragon/local_pubchem_db
 cd local_pubchem_db
 pip install .
 ```
 
-## Usage
+### Usage
 
-### (1) Download PubChem SDF-files
+#### (1) Download PubChem SDF-files
 
-PubChem allows to [download a snapshot](https://ftp.ncbi.nlm.nih.gov/pubchem/Compound/CURRENT-Full/SDF/) of their current database (~75GB). You can use the following command to retrieve the sdf-files: 
+PubChem allows to [download a snapshot](https://ftp.ncbi.nlm.nih.gov/pubchem/Compound/CURRENT-Full/SDF/) of their current database (~110GB). You can use the following command to retrieve the sdf-files: 
 ```bash
 wget -e robots=off --recursive --no-parent https://ftp.ncbi.nlm.nih.gov/pubchem/Compound/CURRENT-Full/SDF/
 mkdir -p pubchem/sdf
@@ -29,7 +141,7 @@ mv ftp.ncbi.nlm.nih.gov/pubchem/Compound/CURRENT-Full/SDF/*.sdf.gz pubchem/sdf
 rm -r ftp.ncbi.nlm.nih.gov/pubchem/Compound/CURRENT-Full/SDF
 ```
 
-### (2) Specifiy the DB Layout
+#### (2) Specifiy the DB Layout
 
 You can specify the DB layout using a simple json-file (see also this [example](default_db_layout.json)):
 ```json
@@ -76,7 +188,7 @@ The json-file contains consists of nested dictionaries. The one containing the D
 | WITH_INDEX | If true, an index is created for the column. This allows faster queries with constraints on this column. | Yes |
 | CREATE_LIKE | Value of the SD_TAG can be transformed using a Python lambda function defined as string. For example ```"lambda __x: __x.split('-')[0]"``` applied to the InChIKey tag can be used to only return the first InChIKey part. The lambda function is applied after the value has been converted into the target DTYPE. | Yes |
 
-### (3) Build the Database
+#### (3) Build the Database
 
 The DB is build using: 
 ```bash
@@ -86,13 +198,21 @@ mkdir db
 touch db/db_layout.json
 # Edit it ... 
 # vim db/db_layout.json
-python /path/to/local_pubchem_db/build_pubchem_db.py pubchem --gzip --db_layout_fn=db/db_layout.json
+python /path/to/local_pubchem_db/build_pubchem_db.py pubchem --gzip --db_layout_fn=db/db_layout.json --workers 4
 ```
 Please note: PubChem contains *many* compound and the resulting SQLite file can be very large. Especially when the indices are created sqlite might require twice the memory of the DB for some time. Ensure your drive has enough memory. If you face the problem, that your systems temp-directory runs out of memory, when creating the indices, have a look [here](https://sqlite.org/tempfiles.html#temporary_file_storage_locations). You can temporarily change sqlite's temp-directory by setting ```SQLITE_TMPDIR```:
 ```bash
 SQLITE_TMPDIR=/my/large/disk/temp python /path/to/local_pubchem_db/build_pubchem_db.py pubchem --gzip --db_layout_fn=db/db_layout.json
 ```
 ## Version History
+
+#### 0.4:
+- Docker image with web UI and REST API (`pubchem_local` package), Unraid template
+- Imports lab safety / experimental property data (`CID-LCSS.xml.gz`) and compound names/synonyms
+- Fixed default layout for PubChem's current SD-tags (`PUBCHEM_SMILES`, `PUBCHEM_CONNECTIVITY_SMILES`; the
+  `PUBCHEM_OPENEYE_*_SMILES` tags no longer exist and made every compound be skipped) and a syntax error in its
+  `CREATE_LIKE` lambda
+- Much faster, streaming SDF parser; parallel parsing of SDF files (`--workers`); duplicate keys no longer abort a build
 
 #### 0.3:
 - Add support for data-transformations of SD_TAG values using lambda functions
