@@ -290,8 +290,8 @@
   // ------------------------------------------------------------------ setup / build
   const DATASET_INFO = {
     lcss: { title: "Lab safety & experimental data", desc: "PubChem's Laboratory Chemical Safety Summaries: boiling/melting point, density, flash point, GHS hazards, handling, first aid, disposal. Download ≈ 0.5 GB, builds in minutes. Most useful for lab work — start here." },
-    names: { title: "Names & synonyms", desc: "Titles and synonyms for all compounds; enables name, trade name and CAS search across all of PubChem. Download ≈ 3 GB, builds in under an hour on most systems." },
-    compounds: { title: "All compounds (full PubChem)", desc: "Structures and computed properties (formula, mass, SMILES, InChI, XLogP, TPSA…) of ~120 million compounds. Download ≈ 110 GB, database ≈ 60–80 GB, builds in many hours. Resumable." },
+    names: { title: "Names & synonyms", desc: "Titles and synonyms for all compounds; enables name, trade name and CAS search across all of PubChem. Download ≈ 3 GB, ≈ 22 GB on disk, builds in under an hour on most systems." },
+    compounds: { title: "All compounds (full PubChem)", desc: "Structures and computed properties (formula, mass, SMILES, InChI, XLogP, TPSA…) of ~120 million compounds. Download ≈ 110 GB (deleted as it is imported), database ≈ 70–100 GB plus ≈ 15 GB of temporary space while it builds; takes many hours. Resumable." },
   };
 
   async function showSetup() {
@@ -342,7 +342,7 @@
     start && start.addEventListener("click", async () => {
       const datasets = [...view.querySelectorAll("input[name=ds]:checked")].map((i) => i.value);
       if (!datasets.length) return alert("Select at least one dataset.");
-      if (datasets.includes("compounds") && !confirm("The full compound database needs about 110 GB of downloads and 60–80 GB for the database, and takes many hours to build. Continue?")) return;
+      if (datasets.includes("compounds") && !confirm("The full compound database needs about 110 GB of downloads and 70–100 GB for the database (plus ≈ 15 GB temporary space), and takes many hours to build. Continue?")) return;
       try {
         await api("/api/build/start", { method: "POST", headers: authHeaders(), body: JSON.stringify({ datasets }) });
         showSetup();

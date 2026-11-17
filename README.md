@@ -22,8 +22,8 @@ web UI ("Databases" page):
 | Dataset | Contents | Download | Disk | Build time* |
 | --- | --- | --- | --- | --- |
 | `lcss` — Lab safety & experimental data | ~257,000 compounds that matter in a lab: experimental properties, GHS hazards, handling, storage, first aid, disposal, with sources (`CID-LCSS.xml.gz`) | 0.5 GB | 2 GB | ~5 min |
-| `names` — Names & synonyms | Preferred names and ~100M synonyms (trade names, CAS numbers, ...) for all compounds; enables name search across all of PubChem | 3 GB | ~16 GB | ~30 min |
-| `compounds` — All compounds | ~120 million compounds: formula, masses, SMILES, InChI/InChIKey, IUPAC name, XLogP3, TPSA, H-bond donors/acceptors, ... (`CURRENT-Full/SDF`) | 110 GB | ~60–80 GB | several hours |
+| `names` — Names & synonyms | Preferred names and ~100M synonyms (trade names, CAS numbers, ...) for all compounds; enables name search across all of PubChem | 3 GB | ~22 GB | ~30 min |
+| `compounds` — All compounds | ~120 million compounds: formula, masses, SMILES, InChI/InChIKey, IUPAC name, XLogP3, TPSA, H-bond donors/acceptors, ... (`CURRENT-Full/SDF`) | 110 GB | ~70–100 GB (+ ~15 GB temporary while building) | several hours |
 
 \* on a 4-core machine with a fast connection; the compound build is resumable and parses files in parallel.
 

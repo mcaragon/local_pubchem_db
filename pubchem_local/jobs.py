@@ -51,7 +51,9 @@ def start_build(datasets, fresh=False):
     if fresh:
         cmd.append("--fresh")
     log = open(config.log_dir() / "build.stdout.log", "ab")
-    proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    env = dict(os.environ)
+    env.setdefault("SQLITE_TMPDIR", str(config.tmp_dir()))
+    proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True, env=env)
     # Write a provisional status so that the UI shows the build immediately
     write_status({"state": "running", "pid": proc.pid, "started_at": now_iso(), "datasets": datasets,
                   "current": {"dataset": datasets[0], "message": "Starting"}, "progress": None, "log": [],
