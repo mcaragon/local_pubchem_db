@@ -20,6 +20,7 @@ STYLES = ("cow", "bow", "wob", "cob")  # colour/black on white, white/colour on 
 ABBREVIATIONS = ("off", "on")
 ANNOTATIONS = ("none", "number", "cip")
 FORMATS = ("svg", "png")
+ORIENTATIONS = ("standard", "cdk")  # see pubchem_local.orient
 
 _lock = threading.Lock()
 _state = {"started": False, "error": None}
@@ -75,6 +76,12 @@ def _start():
             StandardGenerator = J("org.openscience.cdk.renderer.generators.standard.StandardGenerator")
             SilentChemObjectBuilder = J("org.openscience.cdk.silent.SilentChemObjectBuilder")
             SmilesParser = J("org.openscience.cdk.smiles.SmilesParser")
+            StructureDiagramGenerator = J("org.openscience.cdk.layout.StructureDiagramGenerator")
+            NonplanarBonds = J("org.openscience.cdk.layout.NonplanarBonds")
+            RingSearch = J("org.openscience.cdk.ringsearch.RingSearch")
+            Cycles = J("org.openscience.cdk.graph.Cycles")
+            ConnectivityChecker = J("org.openscience.cdk.graph.ConnectivityChecker")
+            Point2d = J("javax.vecmath.Point2d")
 
             abbreviations = Abbreviations()
             abbreviations.loadFromFile("/org/openscience/cdk/depict/obabel_superatoms.smi")
@@ -118,7 +125,7 @@ def unavailable_reason():
 
 
 def depict(smiles, fmt="svg", width=None, height=None, style="cow", abbr="off", annotate="none", zoom=None,
-           title=None):
+           title=None, orient="standard"):
     """
     Render a SMILES string.
 
@@ -126,18 +133,28 @@ def depict(smiles, fmt="svg", width=None, height=None, style="cow", abbr="off", 
     :param style: cow (colour on white), bow (black on white), wob (white on black), cob (colour on black)
     :param abbr: "on" to contract common groups (Ph, OMe, Boc, ...), "off" to draw every atom
     :param annotate: "none", "number" (atom numbers) or "cip" (R/S, E/Z labels)
+    :param orient: "standard" (ring-anchored orientation, see pubchem_local.orient) or "cdk" (CDK's own layout)
     :return: (bytes, media type)
     """
     if not _start():
         raise RuntimeError("CDK unavailable: %s" % _state["error"])
     j = _java
-    if style not in STYLES or abbr not in ABBREVIATIONS or annotate not in ANNOTATIONS or fmt not in FORMATS:
+    if (style not in STYLES or abbr not in ABBREVIATIONS or annotate not in ANNOTATIONS or fmt not in FORMATS
+            or orient not in ORIENTATIONS):
         raise DepictError("invalid option")
 
     try:
         mol = j["SmilesParser"](j["SilentChemObjectBuilder"].getInstance()).parseSmiles(smiles)
     except Exception as err:
         raise DepictError("Could not parse SMILES: %s" % getattr(err, "getMessage", lambda: err)())
+
+    if orient == "standard" and mol.getAtomCount():
+        try:
+            from pubchem_local import orient as orientation
+            orientation.layout(j, mol)
+        except Exception:
+            for atom in mol.atoms():  # let CDK lay the molecule out itself
+                atom.setPoint2d(None)
 
     if annotate == "cip":
         j["CIPTool"].label(mol)

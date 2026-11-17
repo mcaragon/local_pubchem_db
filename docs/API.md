@@ -43,8 +43,18 @@ Drawn with the [Chemistry Development Kit](https://cdk.github.io/) (the engine b
 | `annotate` | `none`, `number` (atom numbers), `cip` (R/S and E/Z labels) | `none` |
 | `zoom` | scale factor; with `w`/`h` set, overrides fit-to-size | |
 | `title` | `true` prints the compound name under the drawing (with `cid`) | `false` |
+| `orient` | `standard`: consistent orientation (see below), `cdk`: CDK's own layout | `standard` |
 
 Examples: `/api/depict?cid=2244&w=400&h=300`, `/api/depict?smi=CC(C)[C@@H]1CC[C@@H](C)C[C@H]1O&annotate=cip&format=png`.
+
+**Orientation (`orient=standard`).** CDK lays molecules out in SMILES atom order and then turns them to their widest
+orientation, so close analogues can come out rotated or mirrored relative to each other. The standard orientation
+anchors the drawing on the main ring system (one ring or a bicyclic system such as naphthalene or indole) and turns or
+mirrors it so that the largest substituent points right and the next largest points up (on ties: the one nearest the
+largest substituent). Related compounds therefore share the same pose, e.g. 2,5-dimethoxyphenethylamine and its
+4-bromo analogue. Larger fused systems (steroids, morphinans) and acyclic molecules keep CDK's layout, which already
+uses conventional templates. Stereo wedges are recomputed after mirroring, so configurations are always preserved.
+Counter-ions (e.g. HCl) are drawn to the right of the main structure.
 
 Invalid SMILES returns 400. If the server has no Java/CDK, SVGs are drawn with RDKit instead and PNG returns 501; the
 `X-Depiction-Engine` response header (and `depiction_engine` in `/api/health`) says which engine was used.
