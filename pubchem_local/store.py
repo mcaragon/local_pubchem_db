@@ -10,8 +10,8 @@ from pubchem_local import config, propparse
 
 try:  # RDKit is optional; it enables structure images and SMILES/InChI search
     from rdkit import Chem, RDLogger
-    from rdkit.Chem.Draw import rdMolDraw2D
     RDLogger.DisableLog("rdApp.*")
+    from pubchem_local import depict
 except ImportError:  # pragma: no cover
     Chem = None
 
@@ -475,18 +475,10 @@ class Store(object):
                 mol = Chem.MolFromInchi(inchi)
         if mol is None:
             return None
-        drawer = rdMolDraw2D.MolDraw2DSVG(width, height)
-        opts = drawer.drawOptions()
-        opts.clearBackground = False
-        opts.bondLineWidth = 1.5
-        if dark:
-            opts.setAtomPalette({-1: (0.9, 0.9, 0.9), 6: (0.9, 0.9, 0.9), 1: (0.9, 0.9, 0.9),
-                                 7: (0.45, 0.6, 1.0), 8: (1.0, 0.4, 0.4), 16: (0.95, 0.85, 0.3),
-                                 9: (0.4, 0.85, 0.4), 17: (0.4, 0.85, 0.4), 35: (0.85, 0.5, 0.35),
-                                 15: (1.0, 0.6, 0.2), 53: (0.75, 0.45, 0.95)})
-        rdMolDraw2D.PrepareAndDrawMolecule(drawer, mol)
-        drawer.FinishDrawing()
-        return drawer.GetDrawingText()
+        try:
+            return depict.depict_svg(mol, width, height, dark=dark)
+        except Exception:
+            return None
 
     # ------------------------------------------------------------------ statistics
 
