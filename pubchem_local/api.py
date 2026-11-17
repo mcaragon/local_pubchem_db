@@ -139,6 +139,9 @@ def depict_structure(
                               description="Atom numbers or CIP (R/S, E/Z) labels"),
         zoom: Optional[float] = Query(None, gt=0, le=10, description="Scale factor (default: fit to size)"),
         title: bool = Query(False, description="Show the compound name below the structure (with cid)"),
+        orient: str = Query("standard", pattern="^(standard|cdk)$",
+                            description="standard: consistent ring-anchored orientation (largest substituent to the "
+                                        "right); cdk: CDK's own layout"),
         store: Store = Depends(get_store)):
     """Structure depictions rendered with the Chemistry Development Kit (the engine behind CDK Depict), e.g.
     `/api/depict?cid=180&w=400&h=300` or `/api/depict?smi=CC(=O)Oc1ccccc1C(=O)O&format=png&annotate=cip`.
@@ -158,7 +161,7 @@ def depict_structure(
     if cdk.available():
         try:
             data, media_type = cdk.depict(smi, format, w, h, style=style, abbr=abbr, annotate=annotate, zoom=zoom,
-                                          title=name)
+                                          title=name, orient=orient)
         except cdk.DepictError as err:
             raise HTTPException(status_code=400, detail=str(err))
         headers["X-Depiction-Engine"] = "cdk"
