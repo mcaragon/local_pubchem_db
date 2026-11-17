@@ -17,6 +17,11 @@ def _raise_keyboard_interrupt(signum, frame):
 
 
 def cmd_build(args):
+    # SQLite writes the temporary files for sorting (index creation) to SQLITE_TMPDIR, read once per process. Without
+    # it they go to /var/tmp, which inside a container is the image layer (docker.img on Unraid), not the data volume.
+    import os
+    os.environ.setdefault("SQLITE_TMPDIR", str(config.tmp_dir()))
+    config.tmp_dir().mkdir(parents=True, exist_ok=True)
     from pubchem_local import pipeline
     signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
     datasets = config.DATASETS if args.datasets in ("all", "full") else [d.strip() for d in args.datasets.split(",")]

@@ -22,8 +22,8 @@ web UI ("Databases" page):
 | Dataset | Contents | Download | Disk | Build time* |
 | --- | --- | --- | --- | --- |
 | `lcss` — Lab safety & experimental data | ~257,000 compounds that matter in a lab: experimental properties, GHS hazards, handling, storage, first aid, disposal, with sources (`CID-LCSS.xml.gz`) | 0.5 GB | 2 GB | ~5 min |
-| `names` — Names & synonyms | Preferred names and ~100M synonyms (trade names, CAS numbers, ...) for all compounds; enables name search across all of PubChem | 3 GB | ~16 GB | ~30 min |
-| `compounds` — All compounds | ~120 million compounds: formula, masses, SMILES, InChI/InChIKey, IUPAC name, XLogP3, TPSA, H-bond donors/acceptors, ... (`CURRENT-Full/SDF`) | 110 GB | ~60–80 GB | several hours |
+| `names` — Names & synonyms | Preferred names and ~100M synonyms (trade names, CAS numbers, ...) for all compounds; enables name search across all of PubChem | 3 GB | ~22 GB | ~30 min |
+| `compounds` — All compounds | ~120 million compounds: formula, masses, SMILES, InChI/InChIKey, IUPAC name, XLogP3, TPSA, H-bond donors/acceptors, ... (`CURRENT-Full/SDF`) | 110 GB | ~70–100 GB (+ ~15 GB temporary while building) | several hours |
 
 \* on a 4-core machine with a fast connection; the compound build is resumable and parses files in parallel.
 
@@ -38,21 +38,41 @@ critical values before relying on them.
 
 ## Installation on Unraid
 
-1. In the Unraid web UI go to **Docker → Add Container** and fill in the template, or download
-   [`unraid/pubchem-local.xml`](unraid/pubchem-local.xml) to `/boot/config/plugins/dockerMan/templates-user/`
-   on your flash drive and pick it under *Template → User templates*:
+The databases need up to ~125 GB (all datasets), so give them a **dedicated share** instead of `appdata`:
+
+1. **Shares → Add Share**, name it `pubchem-local`:
+   * *Primary storage*: your SSD **cache pool**. SQLite builds on the parity-protected array are very slow.
+   * *Secondary storage*: **Array**, *Mover action*: **Cache → Array** if your cache can't hold everything
+     permanently. Builds then run at SSD speed and the mover moves the finished databases to the array.
+     Searching from the array works fine (the first query after the disks spin down takes a few seconds).
+     Otherwise *Secondary storage: None* (cache only).
+   * The cache still needs room for the dataset that is being built: ~25 GB for names, ~100–120 GB for all
+     compounds (database + temporary sort space).
+2. **Docker → Add Container**, or download [`unraid/pubchem-local.xml`](unraid/pubchem-local.xml) to
+   `/boot/config/plugins/dockerMan/templates-user/my-pubchem-local.xml` and pick it under *Template → User templates*:
    * Repository: `ghcr.io/mcaragon/local_pubchem_db:latest`
-   * Port: `8080` → `8080`
-   * Path: `/mnt/user/appdata/pubchem-local` → `/data`
-2. Start the container and open the WebUI. Go to **Databases**, select the datasets and click
+   * Port: `8080` (container) → any free host port
+   * Path: `/mnt/user/pubchem-local` → `/data`
+3. Start the container and open the WebUI. Go to **Databases**, select the datasets and click
    **Download & build selected**. Progress and logs are shown on that page.
 
-Recommendations:
+Everything lives under `/data` (one mapping): `db/` (the SQLite databases), `downloads/`, `tmp/` (temporary files,
+including SQLite's sort files), `state/` and `logs/`. Downloaded SDF files are deleted after import unless
+`KEEP_SDF_FILES=true`.
 
-* Put `/data` on an **SSD / cache pool** (a share with "Use cache pool: Only/Prefer"). SQLite on the parity-protected
-  array is slow, especially while building indices.
-* The full `compounds` build needs ~110 GB of downloads. Downloaded SDF files are deleted after import unless
-  `KEEP_SDF_FILES=true`, so peak usage is roughly the database size plus a few GB.
+### Moving an existing installation to a new share
+
+1. On the **Databases** page, cancel a running build (imported compound files are kept; the build resumes later).
+2. Stop the container.
+3. Copy the data, check it, then delete the old folder:
+   ```bash
+   rsync -a --info=progress2 /mnt/user/appdata/pubchem-local/ /mnt/user/pubchem-local/
+   ```
+   ```bash
+   rm -rf /mnt/user/appdata/pubchem-local
+   ```
+4. Edit the container, change the host path of `/data` to `/mnt/user/pubchem-local`, click **Apply**, and restart any
+   build from the **Databases** page.
 
 ## Installation with Docker / Docker Compose
 
