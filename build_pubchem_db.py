@@ -43,6 +43,8 @@ if __name__ == "__main__":
                             help="If true, all existing tables will be deleted and the DB will be re-build.")
     arg_parser.add_argument("--db_layout_fn", type=str, default="./default_db_layout.json",
                             help="JSON-file specifying the database layout.")
+    arg_parser.add_argument("--workers", type=int, default=1,
+                            help="Number of processes used to parse sdf-files in parallel.")
 
     # Parse arguments
     args = arg_parser.parse_args()
@@ -51,4 +53,4 @@ if __name__ == "__main__":
     db_specs = load_db_specifications(args.db_layout_fn)
 
     # Build the database
-    sys.exit(build_db(args.base_dir, args.gzip, args.reset, db_specs))
+    sys.exit(build_db(args.base_dir, args.gzip, args.reset, db_specs, n_workers=args.workers))

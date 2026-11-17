@@ -1,0 +1,11 @@
+.git
+.github
+**/__pycache__
+*.egg-info
+build
+dist
+venv
+.idea
+db_files
+pubchem-data
+pubchem2sqlite/tests/db

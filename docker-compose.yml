@@ -1,0 +1,19 @@
+# docker compose up -d   ->  open http://<server>:8080
+services:
+  pubchem-local:
+    image: ghcr.io/mcaragon/local_pubchem_db:latest
+    # build: .            # uncomment to build the image locally instead
+    container_name: pubchem-local
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./pubchem-data:/data
+    environment:
+      - PUID=1000
+      - PGID=1000
+      # Build these datasets automatically on first start (lcss, names, compounds or all). Leave empty to use the UI.
+      - AUTO_BUILD=lcss,names
+      # - WORKERS=4               # parallel SDF parser processes (default: CPU cores - 1, max 8)
+      # - KEEP_SDF_FILES=false    # keep the ~110 GB of downloaded SDF files after import
+      # - ADMIN_TOKEN=change-me   # require this token to start/cancel builds
+    restart: unless-stopped

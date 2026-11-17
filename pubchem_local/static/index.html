@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PubChem Local</title>
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#/"><img src="/static/icon.svg" alt="" width="28" height="28"><span>PubChem <b>Local</b></span></a>
+  <form class="searchbar" id="searchForm" autocomplete="off" role="search">
+    <input id="q" type="search" placeholder="Name, CAS, formula, SMILES, InChIKey or CID" aria-label="Search compounds">
+    <ul id="suggestions" class="suggestions" role="listbox" hidden></ul>
+  </form>
+  <nav class="nav">
+    <a href="#/setup" id="navSetup">Databases</a>
+    <a href="/docs" target="_blank" rel="noopener">API</a>
+  </nav>
+</header>
+<div id="banner" class="banner" hidden></div>
+<main id="view" class="view" aria-live="polite"></main>
+<footer class="footer">Data: <a href="https://pubchem.ncbi.nlm.nih.gov/" target="_blank" rel="noopener">PubChem</a>, National Library of Medicine. Experimental values are compiled from the cited sources; verify critical values before use.</footer>
+<script src="/static/app.js"></script>
+</body>
+</html>

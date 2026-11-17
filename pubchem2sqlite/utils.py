@@ -22,16 +22,24 @@
 # SOFTWARE.
 #####
 
+
 import re
 import os
 import json
 import gzip
 import glob
 import sqlite3
+import tempfile
 import traceback
 
 from collections import OrderedDict
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from timeit import default_timer as timer
+
+
+# Matches an SD-tag header line ("> <TAG>" possibly followed by extra text such as "(1)") and captures the first
+# line of its value. Only the first line is used, which is the behaviour of the original line based parser.
+_SD_TAG_RE = re.compile(r"^> +<([^>\n]+)>[^\n]*\n([^\n]*)", re.M)
 
 
 def _as_dtype(val, dtype):
@@ -56,6 +64,64 @@ def _as_dtype(val, dtype):
     return oval
 
 
+class CompiledSpecs(object):
+    """
+    Pre-processed version of a DB layout specification. Building this once (instead of once per molecule) avoids
+    re-evaluating the 'CREATE_LIKE' lambda functions for every compound.
+    """
+    def __init__(self, db_specs):
+        self.columns = list(db_specs["columns"].keys())
+        self.dtypes = []
+        self.sd_tags = []
+        self.create_likes = []
+        self.not_null = []
+
+        for name, specs in db_specs["columns"].items():
+            self.dtypes.append(specs["DTYPE"].lower())
+            self.sd_tags.append(list(specs["SD_TAG"]))
+            self.create_likes.append(eval(specs["CREATE_LIKE"]) if "CREATE_LIKE" in specs else None)
+            self.not_null.append(bool(specs.get("NOT_NULL", False)))
+
+    def values_from_tags(self, tags):
+        """
+        :param tags: dictionary, SD-tag name -> (string) value
+
+        :return: list of values (one per column, None if not available)
+        """
+        values = []
+        for dtype, sd_tags, create_like in zip(self.dtypes, self.sd_tags, self.create_likes):
+            val = None
+            for sd_tag in sd_tags:
+                if sd_tag in tags:
+                    val = _as_dtype(tags[sd_tag], dtype)
+                    if create_like is not None:
+                        val = create_like(val)
+                    break
+            values.append(val)
+        return values
+
+    def row_from_tags(self, tags):
+        """
+        :return: tuple of values, or None if a NOT NULL column has no value.
+        """
+        values = self.values_from_tags(tags)
+        for val, not_null in zip(values, self.not_null):
+            if not_null and val is None:
+                return None
+        return tuple(values)
+
+
+def parse_sd_tags(sdf):
+    """
+    Extract all SD-tags (first value line only) from a single molecule's sdf-string.
+
+    :param sdf: string, containing the molecule's sdf
+
+    :return: dictionary, SD-tag name -> string value
+    """
+    return dict(_SD_TAG_RE.findall(sdf))
+
+
 def extract_info_from_sdf(sdf, db_specs):
     """
     Extract the information for a given molecules from its sdf-string.
@@ -66,56 +132,8 @@ def extract_info_from_sdf(sdf, db_specs):
 
     :return: OrderedDict, containing the extracted information.
     """
-    infos = OrderedDict([(k, None) for k in db_specs["columns"]])
-    missing_infos = set(infos.keys())
-
-    #####################################################
-    # TODO: This can be moves somewhere else. Its a global setup for all sdf-files.
-    # type of the information associated with the SD-tag
-    dtypes = {}
-    create_likes = {}
-    sdtags2info = {}
-    for k, specs in db_specs["columns"].items():
-        dtypes[k] = specs["DTYPE"].lower()
-
-        # Check for value transformation function
-        if "CREATE_LIKE" in specs:
-            create_likes[k] = eval(specs["CREATE_LIKE"])
-
-        for sdtag in ["> <%s>" % v for v in specs["SD_TAG"]]:
-            try:
-                sdtags2info[sdtag].append(k)
-            except KeyError:
-                sdtags2info[sdtag] = [k]
-    #####################################################
-
-    lines = sdf.split("\n")
-    n_line = len(lines)
-    i = 0
-
-    while missing_infos and i < (n_line - 1):
-        # skip empty lines
-        if not len(lines[i]):
-            i += 1
-            continue
-
-        if lines[i].startswith("> ") and (lines[i] in sdtags2info):
-            for info in sdtags2info[lines[i]]:
-                val = _as_dtype(lines[i + 1], dtypes[info])
-
-                # Apply value transformation if provided
-                if info in create_likes:
-                    val = create_likes[info](val)
-
-                infos[info] = val
-
-                missing_infos.remove(info)
-
-            i += 2
-
-        i += 1
-
-    return infos
+    compiled = db_specs if isinstance(db_specs, CompiledSpecs) else CompiledSpecs(db_specs)
+    return OrderedDict(zip(compiled.columns, compiled.values_from_tags(parse_sd_tags(sdf))))
 
 
 def insert_info_from_sdf_strings(db_connection, db_specs, iter_cid_sdf):
@@ -133,36 +151,42 @@ def insert_info_from_sdf_strings(db_connection, db_specs, iter_cid_sdf):
     """
     start = timer()
 
-    col_names = ",".join(db_specs["columns"].keys())
-    placeholders = ",".join(["?"] * len(db_specs["columns"]))
-
-    # Get all columns that are requested to be NOT NULL
-    not_null_cols = set(col for col, specs in db_specs["columns"].items() if specs.get("NOT_NULL", False))
-
-    n_inserted = 0
-
-    for _, sdf in iter_cid_sdf:
-        # Extract information
-        mol_sdf = extract_info_from_sdf(sdf, db_specs)
-
-        # Skip PubChem entries that do not provide all information requested to be NOT NULL
-        skip_sdf = False
-        for col in not_null_cols:
-            if mol_sdf[col] is None:
-                skip_sdf = True
-                break
-        if skip_sdf:
-            continue
-
-        # Insert extracted information to the database
-        db_connection.execute("INSERT INTO compounds (%s) VALUES (%s)" % (col_names, placeholders),
-                              tuple(v for v in mol_sdf.values()))
-        n_inserted += 1
+    compiled = CompiledSpecs(db_specs)
+    rows = (compiled.row_from_tags(parse_sd_tags(sdf)) for _, sdf in iter_cid_sdf)
+    n_inserted = _insert_rows(db_connection, compiled, (row for row in rows if row is not None))
 
     end = timer()
     print("Extraction and insertion of the information took %.3fsec" % (end - start))
 
     return n_inserted
+
+
+def _insert_rows(db_connection, compiled, rows, table="compounds", batch_size=10000):
+    """
+    Insert rows using 'INSERT OR IGNORE', i.e. duplicates of the primary key are skipped instead of aborting the
+    whole build.
+
+    :return: number of inserted rows
+    """
+    stmt = "INSERT OR IGNORE INTO %s (%s) VALUES (%s)" % (
+        table, ",".join(compiled.columns), ",".join(["?"] * len(compiled.columns)))
+
+    n_inserted = 0
+    batch = []
+    for row in rows:
+        batch.append(row)
+        if len(batch) >= batch_size:
+            n_inserted += _executemany_count(db_connection, stmt, batch)
+            batch = []
+    if batch:
+        n_inserted += _executemany_count(db_connection, stmt, batch)
+    return n_inserted
+
+
+def _executemany_count(db_connection, stmt, batch):
+    before = db_connection.total_changes
+    db_connection.executemany(stmt, batch)
+    return db_connection.total_changes - before
 
 
 def load_db_specifications(fn):
@@ -242,6 +266,31 @@ def split_sdf_file(sdf_file_stream):
     return list(iter_sdf_file(sdf_file_stream))
 
 
+def iter_sdf_records(sdf_file_stream, chunk_size=1 << 24):
+    """
+    Iterate over the molecule records ('$$$$' separated) of an sdf-file without loading the whole file into memory.
+
+    :param sdf_file_stream: file stream (text mode), pointing to the sdf-file.
+
+    :param chunk_size: scalar, number of characters read at once.
+
+    :yields: string, sdf-string of a single molecule (without the '$$$$' terminator)
+    """
+    buffer = ""
+    while True:
+        data = sdf_file_stream.read(chunk_size)
+        if not data:
+            break
+        buffer += data
+        records = buffer.split("$$$$\n")
+        buffer = records.pop()
+        for record in records:
+            yield record
+    # A file not ending with a newline after the last '$$$$'
+    if buffer.rstrip().endswith("$$$$"):
+        yield buffer.rstrip()[:-4]
+
+
 def iter_sdf_file(sdf_file_stream):
     """
     Split a sdf-file containing the information for several molecules. Returns an iterator over the list
@@ -251,21 +300,9 @@ def iter_sdf_file(sdf_file_stream):
 
     :yields: (cid, sdf-string)-tuple
     """
-    sdf_lines = sdf_file_stream.read()
-    start = 0
-
-    while True:
-        end_pos = sdf_lines.find("$$$$", start)
-        if end_pos == -1:
-            break
-
-        # Extract the sdf-string and the cid
-        sdf_str = sdf_lines[start:end_pos - 1]
-        sdf_str = sdf_str.replace("'", "")
+    for sdf_str in iter_sdf_records(sdf_file_stream):
+        sdf_str = sdf_str.rstrip("\n")
         cid = int(re.findall("<PUBCHEM_COMPOUND_CID>\n([0-9]+)", sdf_str)[0])
-
-        start = end_pos + 5
-
         yield cid, sdf_str
 
 
@@ -282,20 +319,160 @@ def get_sdf_files_not_in_db(db_connection, sdf_fn_in_folder):
     return sorted(list(filter(lambda x: os.path.basename(x) not in sdf_files_in_db, sdf_fn_in_folder)))
 
 
-def opensdf(fn, use_gzip):
+def opensdf(fn, use_gzip=None):
+    if use_gzip is None:
+        use_gzip = fn.endswith(".gz")
     if use_gzip:
-        return gzip.open(fn, "rt")
+        return gzip.open(fn, "rt", encoding="utf-8", errors="replace")
     else:
-        return open(fn, "r")
+        return open(fn, "r", encoding="utf-8", errors="replace")
 
 
-def build_db(base_dir, use_gzip, reset, db_specs):
+def cid_range_from_filename(sdf_fn):
+    """
+    PubChem files are named like 'Compound_000000001_000500000.sdf.gz'.
+
+    :return: (lowest_cid, highest_cid) or (0, 0) if the name does not follow that pattern
+    """
+    parts = os.path.basename(sdf_fn).split(".")[0].split("_")
+    try:
+        return int(parts[1]), int(parts[2])
+    except (IndexError, ValueError):
+        return 0, 0
+
+
+def parse_sdf_file_to_shard(sdf_fn, db_specs, shard_fn, use_gzip=None):
+    """
+    Parse a complete sdf-file and write the extracted rows into a separate (temporary) SQLite file. This function is
+    executed in worker processes, so that several sdf-files can be parsed in parallel while the main process merges
+    finished shards into the target database.
+
+    :return: (sdf_fn, shard_fn, number of parsed compounds)
+    """
+    compiled = CompiledSpecs(db_specs)
+    if os.path.exists(shard_fn):
+        os.remove(shard_fn)
+    conn = sqlite3.connect(shard_fn)
+    try:
+        conn.execute("PRAGMA journal_mode=OFF")
+        conn.execute("PRAGMA synchronous=OFF")
+        # No constraints in the shard, they are enforced when merging.
+        conn.execute("CREATE TABLE compounds(%s)" % ",".join(
+            "%s %s" % (name, dtype) for name, dtype in zip(compiled.columns, compiled.dtypes)))
+        with opensdf(sdf_fn, use_gzip) as sdf_file:
+            rows = (compiled.row_from_tags(parse_sd_tags(rec)) for rec in iter_sdf_records(sdf_file))
+            n = _insert_rows(conn, compiled, (row for row in rows if row is not None))
+        conn.commit()
+    finally:
+        conn.close()
+    return sdf_fn, shard_fn, n
+
+
+def merge_shard(db_connection, sdf_fn, shard_fn, columns):
+    """
+    Copy all rows of a shard into the 'compounds' table and register the sdf-file as processed (single transaction).
+
+    :return: number of inserted rows
+    """
+    cols = ",".join(columns)
+    lowest_cid, highest_cid = cid_range_from_filename(sdf_fn)
+    db_connection.execute("ATTACH DATABASE ? AS shard", (shard_fn,))
+    try:
+        with db_connection:
+            before = db_connection.total_changes
+            db_connection.execute("INSERT OR IGNORE INTO main.compounds (%s) SELECT %s FROM shard.compounds" %
+                                  (cols, cols))
+            n_inserted = db_connection.total_changes - before
+            db_connection.execute("INSERT OR REPLACE INTO sdf_file "
+                                  "(filename, lowest_cid, highest_cid, date_added, n_compounds) "
+                                  "VALUES(?, ?, ?, DATE('now'), ?)",
+                                  (os.path.basename(sdf_fn), lowest_cid, highest_cid, n_inserted))
+    finally:
+        db_connection.execute("DETACH DATABASE shard")
+    return n_inserted
+
+
+def create_indices(db_connection, db_specs, log=print):
+    for colname, specs in db_specs["columns"].items():
+        if specs.get("WITH_INDEX", False):
+            idx_name = "idx_%s" % colname
+            log("Create index on '%s'." % colname)
+            with db_connection:
+                db_connection.execute("DROP INDEX IF EXISTS %s" % idx_name)
+                db_connection.execute("CREATE INDEX %s ON compounds(%s)" % (idx_name, colname))
+
+
+def import_sdf_files(db_connection, db_specs, sdf_files, n_workers=1, tmp_dir=None, use_gzip=None,
+                     on_file_done=None, log=print):
+    """
+    Import a list of sdf-files into an initialized database. With 'n_workers > 1' the files are parsed in parallel.
+
+    :param on_file_done: optional callable(sdf_fn, n_inserted, n_done, n_total), called after each merged file.
+
+    :return: total number of inserted compounds
+    """
+    n_total = len(sdf_files)
+    n_done = 0
+    n_inserted_total = 0
+    columns = CompiledSpecs(db_specs).columns
+
+    if n_total == 0:
+        return 0
+
+    tmp_dir = tmp_dir or tempfile.gettempdir()
+    os.makedirs(tmp_dir, exist_ok=True)
+
+    def _shard_fn(sdf_fn):
+        return os.path.join(tmp_dir, "shard_%s.sqlite" % os.path.basename(sdf_fn).split(".")[0])
+
+    def _merge(sdf_fn, shard_fn):
+        try:
+            return merge_shard(db_connection, sdf_fn, shard_fn, columns)
+        finally:
+            if os.path.exists(shard_fn):
+                os.remove(shard_fn)
+
+    if n_workers <= 1:
+        for sdf_fn in sdf_files:
+            log("Process sdf-file: %s (%d/%d)" % (os.path.basename(sdf_fn), n_done + 1, n_total))
+            _, shard_fn, _ = parse_sdf_file_to_shard(sdf_fn, db_specs, _shard_fn(sdf_fn), use_gzip)
+            n_inserted = _merge(sdf_fn, shard_fn)
+            n_done += 1
+            n_inserted_total += n_inserted
+            log("Number of inserted compounds: %d" % n_inserted)
+            if on_file_done:
+                on_file_done(sdf_fn, n_inserted, n_done, n_total)
+    else:
+        with ProcessPoolExecutor(max_workers=n_workers) as pool:
+            futures = [pool.submit(parse_sdf_file_to_shard, sdf_fn, db_specs, _shard_fn(sdf_fn), use_gzip)
+                       for sdf_fn in sdf_files]
+            for future in as_completed(futures):
+                sdf_fn, shard_fn, _ = future.result()
+                n_inserted = _merge(sdf_fn, shard_fn)
+                n_done += 1
+                n_inserted_total += n_inserted
+                log("Imported %s: %d compounds (%d/%d)" % (os.path.basename(sdf_fn), n_inserted, n_done, n_total))
+                if on_file_done:
+                    on_file_done(sdf_fn, n_inserted, n_done, n_total)
+
+    return n_inserted_total
+
+
+def connect_for_build(db_fn):
+    conn = sqlite3.connect(db_fn)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA cache_size=-262144")  # 256 MB
+    return conn
+
+
+def build_db(base_dir, use_gzip, reset, db_specs, n_workers=1, db_fn=None, tmp_dir=None):
     # Directory paths to the SDF and output DB file
     sdf_dir = os.path.join(base_dir, "sdf")
     db_dir = os.path.join(base_dir, "db")
 
     # Connect to the 'pubchem' database.
-    conn = sqlite3.connect(os.path.join(db_dir, "pubchem.sqlite"))
+    conn = connect_for_build(db_fn or os.path.join(db_dir, "pubchem.sqlite"))
 
     try:
         # Initialize the database
@@ -313,32 +490,11 @@ def build_db(base_dir, use_gzip, reset, db_specs):
         n_sdf_files = len(sdf_files)
         print("Sdf-files to process (after filtering): %d" % n_sdf_files)
 
-        if n_sdf_files > 0:
-            # Iterate over the sdf-files and add them one by one
-            for ii, sdf_fn in enumerate(sdf_files):
-                print("Process sdf-file: %s (%d/%d)" % (os.path.basename(sdf_fn), ii + 1, n_sdf_files))
-
-                # parse and insert current sdf-file
-                with opensdf(sdf_fn, use_gzip) as sdf_file, conn:
-                    n_inserted = insert_info_from_sdf_strings(conn, db_specs, iter_sdf_file(sdf_file))
-                    print("Number of inserted compounds: %d" % n_inserted)
-
-                    # add current sdf-file to the list of completed sdf-files
-                    conn.execute("INSERT INTO sdf_file (filename, lowest_cid, highest_cid, date_added, n_compounds) "
-                                 "  VALUES(?, ?, ?, DATE('now'), ?)",
-                                 (os.path.basename(sdf_fn),
-                                  os.path.basename(sdf_fn).split(".")[0].split("_")[1],
-                                  os.path.basename(sdf_fn).split(".")[0].split("_")[2],
-                                  n_inserted))
+        import_sdf_files(conn, db_specs, sdf_files, n_workers=n_workers, use_gzip=use_gzip,
+                         tmp_dir=tmp_dir or os.path.join(db_dir, "tmp"))
 
         # Create indices after all sdf-files have been parsed and imported to the database.
-        for colname, specs in db_specs["columns"].items():
-            if specs.get("WITH_INDEX", False):
-                idx_name = "idx_%s" % colname
-                with conn:
-                    conn.execute("DROP INDEX IF EXISTS %s" % idx_name)
-                    conn.execute("CREATE INDEX %s ON compounds(%s)" % (idx_name, colname))
-                print("Create index on '%s'." % colname)
+        create_indices(conn, db_specs)
 
         return_code = 0
 
@@ -351,11 +507,11 @@ def build_db(base_dir, use_gzip, reset, db_specs):
         traceback.print_exc()
         return_code = 1
     except IOError as err:
-        print("An IOError occurred: '" + os.strerror(err.args[0]) + "'.")
+        print("An IOError occurred: '%s'." % err)
         traceback.print_exc()
         return_code = 1
     except Exception as err:
-        print(err.args[0])
+        print(err)
         traceback.print_exc()
         return_code = 1
 

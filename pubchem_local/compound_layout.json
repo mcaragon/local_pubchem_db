@@ -1,0 +1,24 @@
+{
+    "columns": {
+        "cid": {"SD_TAG": ["PUBCHEM_COMPOUND_CID"], "DTYPE": "integer", "NOT_NULL": true, "PRIMARY_KEY": true},
+        "iupac_name": {"SD_TAG": ["PUBCHEM_IUPAC_NAME"], "DTYPE": "text"},
+        "molecular_formula": {"SD_TAG": ["PUBCHEM_MOLECULAR_FORMULA"], "DTYPE": "text", "WITH_INDEX": true},
+        "molecular_weight": {"SD_TAG": ["PUBCHEM_MOLECULAR_WEIGHT"], "DTYPE": "real"},
+        "exact_mass": {"SD_TAG": ["PUBCHEM_EXACT_MASS"], "DTYPE": "real", "WITH_INDEX": true},
+        "monoisotopic_mass": {"SD_TAG": ["PUBCHEM_MONOISOTOPIC_WEIGHT"], "DTYPE": "real"},
+        "smiles": {"SD_TAG": ["PUBCHEM_SMILES", "PUBCHEM_OPENEYE_ISO_SMILES"], "DTYPE": "text"},
+        "connectivity_smiles": {"SD_TAG": ["PUBCHEM_CONNECTIVITY_SMILES", "PUBCHEM_OPENEYE_CAN_SMILES"], "DTYPE": "text"},
+        "inchi": {"SD_TAG": ["PUBCHEM_IUPAC_INCHI"], "DTYPE": "text"},
+        "inchikey": {"SD_TAG": ["PUBCHEM_IUPAC_INCHIKEY"], "DTYPE": "text", "WITH_INDEX": true},
+        "inchikey_1": {"SD_TAG": ["PUBCHEM_IUPAC_INCHIKEY"], "DTYPE": "text", "CREATE_LIKE": "lambda __x: __x.split('-')[0]", "WITH_INDEX": true},
+        "xlogp3": {"SD_TAG": ["PUBCHEM_XLOGP3", "PUBCHEM_XLOGP3_AA"], "DTYPE": "real"},
+        "tpsa": {"SD_TAG": ["PUBCHEM_CACTVS_TPSA"], "DTYPE": "real"},
+        "complexity": {"SD_TAG": ["PUBCHEM_CACTVS_COMPLEXITY"], "DTYPE": "real"},
+        "hbond_donors": {"SD_TAG": ["PUBCHEM_CACTVS_HBOND_DONOR"], "DTYPE": "integer"},
+        "hbond_acceptors": {"SD_TAG": ["PUBCHEM_CACTVS_HBOND_ACCEPTOR"], "DTYPE": "integer"},
+        "rotatable_bonds": {"SD_TAG": ["PUBCHEM_CACTVS_ROTATABLE_BOND"], "DTYPE": "integer"},
+        "heavy_atoms": {"SD_TAG": ["PUBCHEM_HEAVY_ATOM_COUNT"], "DTYPE": "integer"},
+        "formal_charge": {"SD_TAG": ["PUBCHEM_TOTAL_CHARGE"], "DTYPE": "integer"},
+        "components": {"SD_TAG": ["PUBCHEM_COMPONENT_COUNT"], "DTYPE": "integer"}
+    }
+}

@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>pubchem-local</Name>
+  <Repository>ghcr.io/mcaragon/local_pubchem_db:latest</Repository>
+  <Registry>https://github.com/mcaragon/local_pubchem_db/pkgs/container/local_pubchem_db</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/mcaragon/local_pubchem_db/issues</Support>
+  <Project>https://github.com/mcaragon/local_pubchem_db</Project>
+  <Overview>Self-hosted, offline copy of the PubChem chemistry database with a web UI and a REST API. Search by name, CAS number, formula, SMILES, InChIKey or CID; view structures, computed properties, experimental physical properties (boiling point, melting point, density, flash point) and GHS safety data. Other apps on your network can query it through the documented REST API at /docs.&#xD;
+&#xD;
+After the first start, open the Web UI and go to "Databases" to download and build the data. The lab safety dataset (~0.5 GB) builds in minutes; the full compound database needs ~110 GB of downloads, ~60-80 GB of disk and several hours. Put the data path on an SSD/cache pool for best performance.</Overview>
+  <Category>Tools: Other: Network:Web</Category>
+  <WebUI>http://[IP]:[PORT:8080]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/mcaragon/local_pubchem_db/master/unraid/pubchem-local.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/mcaragon/local_pubchem_db/master/unraid/icon.png</Icon>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <Requires/>
+  <Config Name="Web UI / API port" Target="8080" Default="8080" Mode="tcp" Description="Port of the web UI and REST API" Type="Port" Display="always" Required="true" Mask="false">8080</Config>
+  <Config Name="Data" Target="/data" Default="/mnt/user/appdata/pubchem-local" Mode="rw" Description="Databases, downloads and logs. Needs ~170 GB for the full compound database (less if KEEP_SDF_FILES=false). An SSD / cache-only share is strongly recommended." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/pubchem-local</Config>
+  <Config Name="Auto build" Target="AUTO_BUILD" Default="" Mode="" Description="Datasets to build automatically on first start if missing: lcss, names, compounds or all (comma separated). Leave empty to start builds from the web UI." Type="Variable" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="Parser workers" Target="WORKERS" Default="" Mode="" Description="Number of parallel processes used to parse the PubChem SDF files (default: CPU cores - 1, max 8)." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="Keep SDF files" Target="KEEP_SDF_FILES" Default="false" Mode="" Description="Keep the ~110 GB of downloaded SDF files after they were imported (only needed to rebuild with a different layout)." Type="Variable" Display="advanced" Required="false" Mask="false">false</Config>
+  <Config Name="Admin token" Target="ADMIN_TOKEN" Default="" Mode="" Description="If set, starting/cancelling builds requires this token. Searching is always open." Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+  <Config Name="CORS origins" Target="CORS_ORIGINS" Default="*" Mode="" Description="Comma separated list of web origins allowed to call the API from a browser (* = any)." Type="Variable" Display="advanced" Required="false" Mask="false">*</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User ID the app runs as" Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group ID the app runs as" Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+</Container>
