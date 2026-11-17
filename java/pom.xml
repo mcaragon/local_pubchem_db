@@ -2,7 +2,7 @@
 <!--
   CDK (Chemistry Development Kit) libraries used by pubchem-local for structure depictions (/api/depict).
   Not a Java project of its own: the Docker build only runs
-      mvn dependency:copy-dependencies -DoutputDirectory=lib
+      mvn org.apache.maven.plugins:maven-dependency-plugin:3.8.1:copy-dependencies -DoutputDirectory=lib
   and the Python server loads the jars with JPype. For local development run the same command in this folder
   (or set CDK_CLASSPATH to a folder containing the jars).
 -->

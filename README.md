@@ -127,7 +127,7 @@ until the new one is complete.
 
 ```bash
 pip install -e ".[server]" httpx
-mvn -f java/pom.xml dependency:copy-dependencies -DoutputDirectory=lib   # CDK jars (needs Java + Maven; optional)
+mvn -f java/pom.xml org.apache.maven.plugins:maven-dependency-plugin:3.8.1:copy-dependencies -DoutputDirectory=lib   # CDK jars (needs Java + Maven; optional)
 python -m unittest pubchem2sqlite/tests/unittests_utils.py
 python -m unittest discover -s pubchem_local/tests -t .
 PUBCHEM_DATA_DIR=./pubchem-data pubchem-local build --datasets lcss
