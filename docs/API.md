@@ -52,8 +52,9 @@ and `has_lab_data`.
 }
 ```
 
-Values are `null` when unknown. `molecular_weight` and `smiles` require the `compounds` or `lcss` dataset; physical
-properties and safety data require `lcss`. Each physical property value is the median of all source values at
+Values are `null` when unknown. `molecular_weight` and `smiles` require the `compounds` or `lcss` dataset (without
+`compounds`, `smiles` is derived from the InChI with RDKit: same structure, possibly different notation than PubChem's);
+physical properties and safety data require `lcss`. Each physical property value is the median of all source values at
 standard conditions. The sources are in `physical_properties.<property>.sources` of `/api/compound/{cid}`:
 
 ```json

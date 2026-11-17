@@ -34,6 +34,21 @@ def _connect(dataset):
     return conn
 
 
+def _smiles_from_inchi(inchi):
+    """
+    SMILES derived with RDKit from an InChI. Used when the 'compounds' dataset (which has PubChem's own SMILES) is not
+    built, so that lab records still carry a structure string. RDKit's canonical form can differ in notation from
+    PubChem's SMILES but describes the same structure.
+    """
+    if Chem is None or not inchi:
+        return None
+    try:
+        mol = Chem.MolFromInchi(inchi)
+        return Chem.MolToSmiles(mol) if mol is not None else None
+    except Exception:
+        return None
+
+
 class Store(object):
     """Open connections to all available databases. Cheap to create; create one per request."""
 
@@ -388,7 +403,7 @@ class Store(object):
             ("cas", lrow.get("cas") or next((s for s in synonyms if CAS_RE.match(s)), None)),
             ("inchi", crow.get("inchi") or lrow.get("inchi")),
             ("inchikey", crow.get("inchikey") or lrow.get("inchikey")),
-            ("smiles", crow.get("smiles")),
+            ("smiles", crow.get("smiles") or _smiles_from_inchi(lrow.get("inchi"))),
             ("connectivity_smiles", crow.get("connectivity_smiles")),
         ])
         computed = OrderedDict((k, v) for k, v in crow.items()
