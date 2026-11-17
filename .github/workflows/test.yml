@@ -19,6 +19,15 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
+    - name: Set up Java (CDK structure depictions)
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '21'
+        cache: maven
+        cache-dependency-path: java/pom.xml
+    - name: Download CDK jars
+      run: mvn -q -B -f java/pom.xml org.apache.maven.plugins:maven-dependency-plugin:3.8.1:copy-dependencies -DoutputDirectory=lib
     - name: Install
       run: |
         python -m pip install --upgrade pip
@@ -26,4 +35,6 @@ jobs:
     - name: Library tests
       run: python -m unittest pubchem2sqlite/tests/unittests_utils.py
     - name: Server tests
+      env:
+        REQUIRE_CDK: "1"  # fail instead of skipping the CDK depiction tests
       run: python -m unittest discover -s pubchem_local/tests -t . -v

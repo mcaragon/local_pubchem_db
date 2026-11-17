@@ -9,3 +9,4 @@ venv
 db_files
 pubchem-data
 pubchem2sqlite/tests/db
+java/lib

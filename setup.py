@@ -16,6 +16,8 @@ setup(
             "fastapi>=0.110,<1",
             "uvicorn>=0.29",
             "rdkit>=2023.9",
+            # CDK structure depictions (needs Java and the jars from java/pom.xml; optional at runtime)
+            "JPype1>=1.5",
         ],
     },
     entry_points={

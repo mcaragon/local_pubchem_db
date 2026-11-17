@@ -1,6 +1,21 @@
+# Stage 1: download the CDK (Chemistry Development Kit) jars used for structure depictions
+FROM maven:3.9-eclipse-temurin-21 AS cdk
+WORKDIR /build
+COPY java/pom.xml .
+RUN mvn -q -B org.apache.maven.plugins:maven-dependency-plugin:3.8.1:copy-dependencies -DoutputDirectory=/cdk/lib
+
 FROM python:3.12-slim
 
-ENV PYTHONUNBUFFERED=1 \
+# Headless Java runtime for the CDK, plus fontconfig, a font and HarfBuzz (needed by Java to draw atom labels)
+RUN mkdir -p /usr/share/man/man1 \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends default-jre-headless fontconfig fonts-dejavu-core libharfbuzz0b \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=cdk /cdk/lib /opt/cdk/lib
+
+ENV CDK_CLASSPATH=/opt/cdk/lib \
+    CDK_MAX_HEAP=256m \
+    PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PUBCHEM_DATA_DIR=/data \
