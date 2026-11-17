@@ -99,6 +99,13 @@ class TestAPI(unittest.TestCase):
         self.assertAlmostEqual(0.96, data["density_g_cm3"], delta=0.01)
         self.assertIn("GHS05", data["pictograms"])
 
+    def test_smiles_without_compounds_dataset(self):
+        # CID 11 only exists in the lab dataset: SMILES is derived from its InChI
+        data = self.get("/api/compound/11/lab")
+        self.assertEqual("ClCCCl", data["smiles"])
+        # Compounds from the SDF dataset keep PubChem's own SMILES
+        self.assertTrue(self.get("/api/compound/31038/lab")["smiles"])
+
     def test_search(self):
         results = self.get("/api/search?q=ethylene dichloride")["results"]
         self.assertEqual(11, results[0]["cid"])
