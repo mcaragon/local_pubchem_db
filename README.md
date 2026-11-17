@@ -7,6 +7,8 @@ and a REST API, packaged as a Docker container (with an Unraid template).
 * Compound pages with 2D structure, identifiers, computed properties, **experimental physical properties**
   (boiling point, melting point, density, flash point, refractive index, solubility, ...) and **GHS safety data**
   (pictograms, signal word, H/P statements) plus PubChem's full Laboratory Chemical Safety Summary.
+* Structure drawings rendered with the **Chemistry Development Kit** (CDK Depict), as SVG or PNG, with optional
+  R/S labels and group abbreviations (`/api/depict`).
 * A documented **REST API** (`/docs`) designed for other apps, e.g. a lab notebook that auto-fills molar masses,
   densities and boiling points: `POST /api/lab/batch` resolves a list of reagents in one call.
 * Builds from PubChem's public bulk downloads; the database files are plain SQLite.
@@ -125,6 +127,7 @@ until the new one is complete.
 
 ```bash
 pip install -e ".[server]" httpx
+mvn -f java/pom.xml dependency:copy-dependencies -DoutputDirectory=lib   # CDK jars (needs Java + Maven; optional)
 python -m unittest pubchem2sqlite/tests/unittests_utils.py
 python -m unittest discover -s pubchem_local/tests -t .
 PUBCHEM_DATA_DIR=./pubchem-data pubchem-local build --datasets lcss
@@ -132,7 +135,7 @@ PUBCHEM_DATA_DIR=./pubchem-data pubchem-local serve --port 8080
 ```
 
 Code layout: `pubchem2sqlite/` (SDF → SQLite library), `pubchem_local/` (downloads, importers, API, web UI in
-`static/`), `docker/`, `unraid/`.
+`static/`), `java/` (CDK dependency list), `docker/`, `unraid/`. Without Java/CDK, structures are drawn with RDKit.
 
 ---
 

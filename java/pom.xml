@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  CDK (Chemistry Development Kit) libraries used by pubchem-local for structure depictions (/api/depict).
+  Not a Java project of its own: the Docker build only runs
+      mvn dependency:copy-dependencies -DoutputDirectory=lib
+  and the Python server loads the jars with JPype. For local development run the same command in this folder
+  (or set CDK_CLASSPATH to a folder containing the jars).
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>local.pubchem</groupId>
+  <artifactId>pubchem-local-cdk</artifactId>
+  <version>1</version>
+  <packaging>pom</packaging>
+
+  <properties>
+    <cdk.version>2.9</cdk.version>
+  </properties>
+
+  <dependencies>
+    <dependency><groupId>org.openscience.cdk</groupId><artifactId>cdk-depict</artifactId><version>${cdk.version}</version></dependency>
+    <dependency><groupId>org.openscience.cdk</groupId><artifactId>cdk-smiles</artifactId><version>${cdk.version}</version></dependency>
+    <dependency><groupId>org.openscience.cdk</groupId><artifactId>cdk-silent</artifactId><version>${cdk.version}</version></dependency>
+    <dependency><groupId>org.openscience.cdk</groupId><artifactId>cdk-sdg</artifactId><version>${cdk.version}</version></dependency>
+    <dependency><groupId>org.openscience.cdk</groupId><artifactId>cdk-cip</artifactId><version>${cdk.version}</version></dependency>
+  </dependencies>
+</project>

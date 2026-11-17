@@ -6,7 +6,7 @@ import re
 import sqlite3
 from collections import OrderedDict
 
-from pubchem_local import config, propparse
+from pubchem_local import cdk, config, propparse
 
 try:  # RDKit is optional; it enables structure images and SMILES/InChI search
     from rdkit import Chem, RDLogger
@@ -462,7 +462,23 @@ class Store(object):
 
     # ------------------------------------------------------------------ structure depiction
 
+    def smiles_for_cid(self, cid):
+        """PubChem's SMILES if the compounds dataset is built, otherwise derived from the lab dataset's InChI."""
+        crow = self.compound_row(cid) or {}
+        if crow.get("smiles"):
+            return crow["smiles"]
+        return _smiles_from_inchi(crow.get("inchi") or (self.lcss_row(cid) or {}).get("inchi"))
+
     def structure_svg(self, cid, width=300, height=240, dark=False):
+        """Structure image: CDK if available (see pubchem_local.cdk), otherwise the CDK-styled RDKit renderer."""
+        if cdk.available():
+            smiles = self.smiles_for_cid(cid)
+            if not smiles:
+                return None
+            try:
+                return cdk.depict(smiles, "svg", width, height, style="cob" if dark else "cow")[0].decode("utf-8")
+            except Exception:
+                pass  # fall back to RDKit below
         if Chem is None:
             return None
         crow = self.compound_row(cid) or {}

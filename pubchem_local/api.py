@@ -4,6 +4,7 @@ REST API and web UI.
 Interactive API documentation is served at /docs (Swagger UI) and /redoc; the OpenAPI schema at /openapi.json.
 """
 import hmac
+import threading
 from pathlib import Path
 from typing import List, Optional
 
@@ -13,7 +14,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from pubchem_local import __version__, config, jobs, pipeline
+from pubchem_local import __version__, cdk, config, jobs, pipeline
 from pubchem_local.store import Store
 
 STATIC_DIR = Path(__file__).with_name("static")
@@ -61,7 +62,14 @@ def _cid_or_404(store, cid):
 
 @app.get("/api/health", tags=["status"], summary="Service health and available datasets")
 def health(store: Store = Depends(get_store)):
-    return {"status": "ok", "version": __version__, "datasets": store.available, "counts": store.stats()}
+    return {"status": "ok", "version": __version__, "datasets": store.available, "counts": store.stats(),
+            "depiction_engine": cdk.engine()}
+
+
+@app.on_event("startup")
+def _warm_up_cdk():
+    # Start the JVM in the background so that the first structure image is not delayed by ~1 s.
+    threading.Thread(target=cdk.available, name="cdk-warmup", daemon=True).start()
 
 
 @app.get("/api/search", tags=["compounds"], summary="Search compounds")
@@ -113,6 +121,60 @@ def compound_svg(cid: int, width: int = Query(300, ge=50, le=2000), height: int 
     if svg is None:
         raise HTTPException(status_code=404, detail="No structure available for compound %d" % cid)
     return Response(svg, media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=86400"})
+
+
+@app.get("/api/depict", tags=["compounds"], summary="Draw a structure (CDK Depict)", response_class=Response,
+         responses={200: {"content": {"image/svg+xml": {}, "image/png": {}}}})
+def depict_structure(
+        smi: Optional[str] = Query(None, description="SMILES to draw (give this or cid)"),
+        cid: Optional[int] = Query(None, description="PubChem CID to draw (give this or smi)"),
+        format: str = Query("svg", pattern="^(svg|png)$", description="svg or png"),
+        w: Optional[int] = Query(None, ge=20, le=4000, description="Width in px (with h; omit both for automatic)"),
+        h: Optional[int] = Query(None, ge=20, le=4000, description="Height in px"),
+        style: str = Query("cow", pattern="^(cow|bow|wob|cob)$",
+                           description="cow = colour on white, bow = black on white, wob = white on black, "
+                                       "cob = colour on black"),
+        abbr: str = Query("off", pattern="^(on|off)$", description="Abbreviate common groups (Ph, OMe, Boc, ...)"),
+        annotate: str = Query("none", pattern="^(none|number|cip)$",
+                              description="Atom numbers or CIP (R/S, E/Z) labels"),
+        zoom: Optional[float] = Query(None, gt=0, le=10, description="Scale factor (default: fit to size)"),
+        title: bool = Query(False, description="Show the compound name below the structure (with cid)"),
+        store: Store = Depends(get_store)):
+    """Structure depictions rendered with the Chemistry Development Kit (the engine behind CDK Depict), e.g.
+    `/api/depict?cid=180&w=400&h=300` or `/api/depict?smi=CC(=O)Oc1ccccc1C(=O)O&format=png&annotate=cip`.
+    If Java/CDK is not available on the server, SVGs are drawn with RDKit instead (response header
+    `X-Depiction-Engine`)."""
+    if (smi is None) == (cid is None):
+        raise HTTPException(status_code=400, detail="Give exactly one of 'smi' or 'cid'")
+    if (w is None) != (h is None):
+        raise HTTPException(status_code=400, detail="Give both 'w' and 'h', or neither")
+    name = None
+    if cid is not None:
+        smi = store.smiles_for_cid(cid)
+        if not smi:
+            raise HTTPException(status_code=404, detail="No structure available for compound %d" % cid)
+        name = store.title(cid) if title else None
+    headers = {"Cache-Control": "public, max-age=86400"}
+    if cdk.available():
+        try:
+            data, media_type = cdk.depict(smi, format, w, h, style=style, abbr=abbr, annotate=annotate, zoom=zoom,
+                                          title=name)
+        except cdk.DepictError as err:
+            raise HTTPException(status_code=400, detail=str(err))
+        headers["X-Depiction-Engine"] = "cdk"
+        return Response(data, media_type=media_type, headers=headers)
+    # Fallback without Java: RDKit, SVG only
+    from pubchem_local import depict as rdkit_depict
+    from rdkit import Chem
+    mol = Chem.MolFromSmiles(smi)
+    if mol is None:
+        raise HTTPException(status_code=400, detail="Could not parse SMILES")
+    if format != "svg":
+        raise HTTPException(status_code=501, detail="PNG output needs the CDK (Java), which is not available: %s"
+                                                    % cdk.unavailable_reason())
+    headers["X-Depiction-Engine"] = "rdkit"
+    svg = rdkit_depict.depict_svg(mol, w or 400, h or 300, dark=style in ("wob", "cob"))
+    return Response(svg, media_type="image/svg+xml", headers=headers)
 
 
 @app.get("/api/lookup", tags=["lab"], summary="Resolve one identifier to the best matching compound")

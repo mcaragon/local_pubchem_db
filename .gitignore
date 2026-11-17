@@ -8,3 +8,6 @@ db_files
 pubchem-data
 *.sqlite
 *.sqlite-*
+
+# CDK jars (downloaded with: mvn -f java/pom.xml dependency:copy-dependencies -DoutputDirectory=lib)
+java/lib/

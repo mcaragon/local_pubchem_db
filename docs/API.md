@@ -18,7 +18,8 @@ Search endpoints need no authentication; only build endpoints can be protected w
 | GET | `/api/compound/{cid}/lab` | Compact lab notebook record |
 | GET | `/api/compound/{cid}/safety-summary` | Full Laboratory Chemical Safety Summary (all sections, with sources) |
 | GET | `/api/compound/{cid}/synonyms` | Synonyms |
-| GET | `/api/compound/{cid}/structure.svg?width=300&height=240&theme=light` | 2D structure image |
+| GET | `/api/depict?cid=…` or `?smi=…` | Structure drawing (CDK Depict): SVG or PNG, styles, R/S labels (see below) |
+| GET | `/api/compound/{cid}/structure.svg?width=300&height=240&theme=light` | 2D structure image (same CDK renderer) |
 | GET | `/api/health` | Available datasets and counts |
 | GET | `/api/build/status` | Dataset and build status |
 | POST | `/api/build/start` | Start a build: `{"datasets": ["lcss", "names", "compounds"]}` |
@@ -26,6 +27,27 @@ Search endpoints need no authentication; only build endpoints can be protected w
 
 `search` results carry `match_type` (`cid`, `inchikey`, `inchi`, `cas`, `name`, `formula`, `smiles`, `name_prefix`)
 and `has_lab_data`.
+
+## Structure drawings: `/api/depict`
+
+Drawn with the [Chemistry Development Kit](https://cdk.github.io/) (the engine behind CDK Depict). Give either a
+`cid` (uses PubChem's SMILES, or one derived from the InChI when the compounds dataset isn't built) or a `smi`.
+
+| Parameter | Values | Default |
+| --- | --- | --- |
+| `smi` / `cid` | SMILES string / PubChem CID (exactly one) | |
+| `format` | `svg`, `png` | `svg` |
+| `w`, `h` | size in px (both or neither; omitted = automatic size) | automatic |
+| `style` | `cow` colour on white, `bow` black on white, `wob` white on black, `cob` colour on black | `cow` |
+| `abbr` | `on` contracts common groups (Ph, OMe, OtBu, Boc, ...) | `off` |
+| `annotate` | `none`, `number` (atom numbers), `cip` (R/S and E/Z labels) | `none` |
+| `zoom` | scale factor; with `w`/`h` set, overrides fit-to-size | |
+| `title` | `true` prints the compound name under the drawing (with `cid`) | `false` |
+
+Examples: `/api/depict?cid=2244&w=400&h=300`, `/api/depict?smi=CC(C)[C@@H]1CC[C@@H](C)C[C@H]1O&annotate=cip&format=png`.
+
+Invalid SMILES returns 400. If the server has no Java/CDK, SVGs are drawn with RDKit instead and PNG returns 501; the
+`X-Depiction-Engine` response header (and `depiction_engine` in `/api/health`) says which engine was used.
 
 ## Lab summary record
 
@@ -108,8 +130,8 @@ const { results } = await res.json();
 // Autocomplete for a reagent input field
 const { suggestions } = await (await fetch(`${BASE}/api/autocomplete?q=${encodeURIComponent("acet")}`)).json();
 
-// Structure image for a report
-const img = `<img src="${BASE}/api/compound/${results[0].cid}/structure.svg?width=400&height=300">`;
+// Structure image for a report (PNG for documents, SVG for web pages)
+const img = `<img src="${BASE}/api/depict?cid=${results[0].cid}&w=400&h=300&format=png">`;
 ```
 
 ## Reading the SQLite files directly

@@ -140,6 +140,25 @@ class TestAPI(unittest.TestCase):
         self.assertIn("<svg", res.text)
         self.get("/api/compound/999999999", status=404)
 
+    def test_depict(self):
+        from pubchem_local import cdk
+        if not cdk.available():
+            if os.environ.get("REQUIRE_CDK"):
+                self.fail("CDK required but unavailable: %s" % cdk.unavailable_reason())
+            self.skipTest("CDK (Java) not available: %s" % cdk.unavailable_reason())
+        res = self.client.get("/api/depict?smi=CC(=O)Oc1ccccc1C(=O)O&w=300&h=200")
+        self.assertEqual(200, res.status_code, res.text)
+        self.assertEqual("cdk", res.headers["X-Depiction-Engine"])
+        self.assertIn("Chemistry Development Kit", res.text)
+        res = self.client.get("/api/depict?cid=11&format=png&annotate=cip&style=bow")
+        self.assertEqual("image/png", res.headers["content-type"])
+        self.assertTrue(res.content.startswith(b"\x89PNG"))
+        self.assertEqual(400, self.client.get("/api/depict?smi=C1CC(").status_code)
+        self.assertEqual(400, self.client.get("/api/depict?smi=CC&cid=11").status_code)
+        self.assertEqual(404, self.client.get("/api/depict?cid=999999999").status_code)
+        self.assertEqual("cdk", self.get("/api/health")["depiction_engine"])
+        self.assertIn("Chemistry Development Kit", self.client.get("/api/compound/11/structure.svg").text)
+
     def test_ui_and_build_status(self):
         self.assertIn("PubChem", self.client.get("/").text)
         self.assertEqual(200, self.client.get("/static/app.js").status_code)
