@@ -40,7 +40,7 @@ critical values before relying on them.
 
 The databases need up to ~125 GB (all datasets), so give them a **dedicated share** instead of `appdata`:
 
-1. **Shares → Add Share**, name it `pubchem`:
+1. **Shares → Add Share**, name it `pubchem-local`:
    * *Primary storage*: your SSD **cache pool**. SQLite builds on the parity-protected array are very slow.
    * *Secondary storage*: **Array**, *Mover action*: **Cache → Array** if your cache can't hold everything
      permanently. Builds then run at SSD speed and the mover moves the finished databases to the array.
@@ -52,7 +52,7 @@ The databases need up to ~125 GB (all datasets), so give them a **dedicated shar
    `/boot/config/plugins/dockerMan/templates-user/my-pubchem-local.xml` and pick it under *Template → User templates*:
    * Repository: `ghcr.io/mcaragon/local_pubchem_db:latest`
    * Port: `8080` (container) → any free host port
-   * Path: `/mnt/user/pubchem` → `/data`
+   * Path: `/mnt/user/pubchem-local` → `/data`
 3. Start the container and open the WebUI. Go to **Databases**, select the datasets and click
    **Download & build selected**. Progress and logs are shown on that page.
 
@@ -66,12 +66,12 @@ including SQLite's sort files), `state/` and `logs/`. Downloaded SDF files are d
 2. Stop the container.
 3. Copy the data, check it, then delete the old folder:
    ```bash
-   rsync -a --info=progress2 /mnt/user/appdata/pubchem-local/ /mnt/user/pubchem/
+   rsync -a --info=progress2 /mnt/user/appdata/pubchem-local/ /mnt/user/pubchem-local/
    ```
    ```bash
    rm -rf /mnt/user/appdata/pubchem-local
    ```
-4. Edit the container, change the host path of `/data` to `/mnt/user/pubchem`, click **Apply**, and restart any
+4. Edit the container, change the host path of `/data` to `/mnt/user/pubchem-local`, click **Apply**, and restart any
    build from the **Databases** page.
 
 ## Installation with Docker / Docker Compose
